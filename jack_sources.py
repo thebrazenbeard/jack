@@ -40,7 +40,16 @@ def chatgpt_messages(data):
         messages = []
         mapping = conversation.get("mapping", {})
         if isinstance(mapping, dict) and mapping:
-            current = conversation.get("current_node")
+            selected = conversation.get("current_node")
+            current = selected
+            if current is None and all(isinstance(node, dict) and
+                                       "parent" in node for node in mapping.values()):
+                # Only infer a branch when the complete graph has one terminal.
+                parents = {node["parent"] for node in mapping.values()
+                           if node["parent"] is not None}
+                leaves = [key for key in mapping if key not in parents]
+                if len(leaves) == 1:
+                    current = leaves[0]
             if current is not None:
                 # Use the selected ancestry, not every discarded conversation fork.
                 lineage, seen = [], set()
@@ -55,10 +64,10 @@ def chatgpt_messages(data):
                         break
                     lineage.append(node.get("message"))
                     current = node.get("parent")
+                if selected is None and len(seen) != len(mapping):
+                    # Inference requires one complete, connected graph.
+                    lineage = []
                 messages = list(reversed(lineage))
-            else:
-                messages = [v.get("message") for v in mapping.values()
-                            if isinstance(v, dict)]
         elif isinstance(conversation.get("messages"), list):
             messages = conversation["messages"]
         for message in sorted((x for x in messages if isinstance(x, dict)),
