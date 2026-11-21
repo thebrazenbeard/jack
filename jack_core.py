@@ -17,9 +17,13 @@ import zipfile
 
 SCHEMA = "JACK_CALCULATED_INDEX_V1"
 SOURCE_WEIGHT = {"conversation": 1.0, "history": 0.45, "public": 0.65}
+PROVENANCE_FACTOR = {"user_role_in_export": 1.0,
+                     "visual_role_marker_in_export": 0.65,
+                     "self_report": 0.85, "third_party_record": 0.45,
+                     "verified_public_account": 0.75}
 TOKEN = re.compile(r"[A-Za-z0-9']+")
-SUPPORTED = {"chatgpt_export", "history_docx", "history_text",
-             "voice_text", "public_text"}
+SUPPORTED = {"chatgpt_export", "pdf_text_speaker_export", "history_docx",
+             "history_text", "voice_text", "public_text"}
 
 
 def tokens(text):
@@ -57,6 +61,36 @@ def chatgpt_messages(data):
                              if isinstance(p, str) and p.strip())
             if text.strip():
                 yield text.strip()
+
+
+def pdf_text_user_messages(raw):
+    """Conservative user-only extraction from a timestamp-stamped PDF text export.
+
+    This is weaker attribution than native ChatGPT JSON: visual role labels
+    can be damaged by PDF extraction. Assistant blocks are never returned.
+    """
+    marker = re.compile(r"^\\s*(You|ChatGPT)\\s+\\S\\s+Nov\\s+\\d{1,2},\\s+\\d{4},", re.I)
+    role, lines = None, []
+    for line in raw.splitlines():
+        match = marker.search(line)
+        if match:
+            if role == "you" and lines:
+                yield "\\n".join(lines).strip()
+            role = match.group(1).lower()
+            lines = []
+            continue
+        if role != "you":
+            continue
+        clean = line.strip()
+        if (not clean or clean.startswith("=== PAGE") or
+                clean == "Vera" or "moz-extension://" in clean or
+                "This chat was exported with" in clean or
+                clean.startswith("Export any chat to") or
+                re.fullmatch(r"\\d+ of \\d+", clean)):
+            continue
+        lines.append(clean)
+    if role == "you" and lines:
+        yield "\\n".join(lines).strip()
 
 
 def docx_text(path):
@@ -121,16 +155,21 @@ def build_index(manifest_path, output_path):
         if source.get("sensitivity") not in ("private", "restricted", "public"):
             raise ValueError("source sensitivity missing")
         proven = source.get("provenance")
-        if proven not in ("user_role_in_export", "self_report",
-                          "third_party_record", "verified_public_account"):
+        if proven not in PROVENANCE_FACTOR:
             raise ValueError("unverified source provenance")
         if kind == "chatgpt_export" and proven != "user_role_in_export":
             raise ValueError("chat exports require user-role attribution")
+        if (kind == "pdf_text_speaker_export" and
+                proven != "visual_role_marker_in_export"):
+            raise ValueError("PDF speaker exports require visual marker provenance")
         if kind == "public_text" and proven != "verified_public_account":
             raise ValueError("public source account requires verified attribution")
         raw = path.read_bytes()
         if kind == "chatgpt_export":
             texts = list(chatgpt_messages(json.loads(raw.decode("utf-8-sig"))))
+            group = "conversation"
+        elif kind == "pdf_text_speaker_export":
+            texts = list(pdf_text_user_messages(raw.decode("utf-8-sig")))
             group = "conversation"
         elif kind == "history_docx":
             texts = list(chunks(docx_text(path)))
@@ -152,7 +191,7 @@ def build_index(manifest_path, output_path):
                          "kind": kind, "provenance": proven, "records": count,
                          "sensitivity": source["sensitivity"]})
     voice = [r["text"] for r in records if r["class"] == "conversation"
-             and r["provenance"] in ("user_role_in_export", "self_report")]
+             and r["provenance"] in ("user_role_in_export", "visual_role_marker_in_export", "self_report")]
     word_counts = [len(tokens(x)) for x in voice]
     style = {"messages": len(voice),
              "avg_words": round(sum(word_counts) / max(1, len(voice)), 2),
@@ -161,6 +200,7 @@ def build_index(manifest_path, output_path):
     index = {"schema": SCHEMA, "backbone": "frozen_external_local_model",
              "method": "deterministic_source_weighted_lexical_retrieval",
              "neural_weights_updated": False, "weights": SOURCE_WEIGHT,
+             "provenance_factors": PROVENANCE_FACTOR,
              "style": style, "source_receipts": receipts, "records": records}
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("x", encoding="utf-8") as stream:
@@ -185,7 +225,8 @@ def retrieve(index, query, limit=5):
             idf = math.log(1 + (n - df[term] + 0.5) / (df[term] + 0.5))
             bm25 += idf * tf[term] * 2.2 / (
                 tf[term] + 1.2 * (0.25 + 0.75 * length / mean_len))
-        score = bm25 * index["weights"][rec["class"]]
+        score = (bm25 * index["weights"][rec["class"]] *
+                 index.get("provenance_factors", PROVENANCE_FACTOR)[rec["provenance"]])
         if score > 0:
             matches.append({**rec, "score": round(score, 7)})
     matches.sort(key=lambda r: (-r["score"], r["id"]))
