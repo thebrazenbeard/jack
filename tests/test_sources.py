@@ -42,6 +42,16 @@ class SourceTests(unittest.TestCase):
         self.assertNotIn("Assistant speech",json.dumps(idx))
         self.assertEqual(idx["backbone"],"none")
 
+    def test_empty_mapping_uses_explicit_messages_without_assistant_voice(self):
+        data = [{"mapping": {}, "messages": [
+            {"author": {"role": "user"},
+             "content": {"parts": ["I inspect the evidence before deciding."]}},
+            {"author": {"role": "assistant"},
+             "content": {"parts": ["I am not Patrick's voice."]}},
+        ]}]
+        self.assertEqual(list(jack_sources.chatgpt_messages(data)),
+                         ["I inspect the evidence before deciding."])
+
     def test_pdf_visual_role_markers_are_separate_provenance(self):
         p=self.vault/"transcript.txt"
         p.write_text("  You   · Nov 16, 2026, 2:50 PM\n"
