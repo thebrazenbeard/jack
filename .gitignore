@@ -1,0 +1,29 @@
+# Never commit private personal data or calculated personality artifacts
+private/
+data/
+artifacts/
+corpus/
+exports/
+medical/
+training_data/
+*.model.json
+*.index.json
+*.model.bin
+*.gguf
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.pdf
+*.docx
+*.zip
+*.jsonl
+
+# Local execution state
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+.env.*
