@@ -62,6 +62,24 @@ class AnalyticModelTests(unittest.TestCase):
         self.assertNotIn("clinician",a.lower())
         self.assertNotIn("trauma",a.lower())
 
+    def test_history_affects_concept_weights_but_not_spoken_voice(self):
+        one=synthetic_index()
+        two=synthetic_index()
+        two["records"][-1]["text"]="A separate historical record discussed an apprenticeship."
+        first=jack_model.build_parameters(one)
+        second=jack_model.build_parameters(two)
+        self.assertNotEqual(first["weights_sha256"],second["weights_sha256"])
+        self.assertEqual(first["unigram_counts"],second["unigram_counts"])
+        self.assertEqual(first["transition_weights"],second["transition_weights"])
+        self.assertNotEqual(first["history_weights"],second["history_weights"])
+        self.assertNotIn("clinician",first["unigram_counts"])
+
+    def test_modified_model_weight_is_rejected(self):
+        model=jack_model.build_parameters(synthetic_index())
+        model["transition_weights"]["i|repair"]["the"]=0.5
+        with self.assertRaisesRegex(ValueError,"integrity"):
+            jack_model.validate_model(model)
+
     def test_zero_direct_voice_refuses_false_personality_model(self):
         idx=synthetic_index()
         idx["records"]=[idx["records"][-1]]
