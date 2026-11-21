@@ -1,6 +1,6 @@
-"""JACK: frozen neural backbone plus reproducible, calculated evidence weights.
+"""JACK: provenance-aware evidence intake for a standalone analytic model.
 
-No gradient training, neural tensor changes, remote embeddings or telemetry.
+No pretrained backbone, gradient training, remote embeddings or telemetry.
 All personal source bytes remain in an operator-chosen private vault.
 """
 from collections import Counter
@@ -39,7 +39,7 @@ def chatgpt_messages(data):
             continue
         messages = []
         mapping = conversation.get("mapping", {})
-        if isinstance(mapping, dict):
+        if isinstance(mapping, dict) and mapping:
             messages = [v.get("message") for v in mapping.values()
                         if isinstance(v, dict)]
         elif isinstance(conversation.get("messages"), list):
