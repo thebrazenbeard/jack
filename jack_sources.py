@@ -40,8 +40,25 @@ def chatgpt_messages(data):
         messages = []
         mapping = conversation.get("mapping", {})
         if isinstance(mapping, dict) and mapping:
-            messages = [v.get("message") for v in mapping.values()
-                        if isinstance(v, dict)]
+            current = conversation.get("current_node")
+            if current is not None:
+                # Use the selected ancestry, not every discarded conversation fork.
+                lineage, seen = [], set()
+                while current is not None:
+                    if not isinstance(current, str) or current in seen:
+                        lineage = []
+                        break
+                    seen.add(current)
+                    node = mapping.get(current)
+                    if not isinstance(node, dict):
+                        lineage = []
+                        break
+                    lineage.append(node.get("message"))
+                    current = node.get("parent")
+                messages = list(reversed(lineage))
+            else:
+                messages = [v.get("message") for v in mapping.values()
+                            if isinstance(v, dict)]
         elif isinstance(conversation.get("messages"), list):
             messages = conversation["messages"]
         for message in sorted((x for x in messages if isinstance(x, dict)),

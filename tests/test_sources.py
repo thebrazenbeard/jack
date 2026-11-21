@@ -52,6 +52,28 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(list(jack_sources.chatgpt_messages(data)),
                          ["I inspect the evidence before deciding."])
 
+    def test_native_export_respects_selected_branch_only(self):
+        def msg(role, text):
+            return {"author": {"role": role}, "content": {"parts": [text]}}
+        data = [{"current_node": "a1", "mapping": {
+            "root": {"parent": None, "message": None},
+            "u1": {"parent": "root", "message": msg("user", "This is my chosen reply.")},
+            "a1": {"parent": "u1", "message": msg("assistant", "Assistant text.")},
+            "u_discarded": {"parent": "root", "message": msg("user", "Discarded draft.")},
+        }}]
+        self.assertEqual(list(jack_sources.chatgpt_messages(data)),
+                         ["This is my chosen reply."])
+
+    def test_corrupt_selected_branch_does_not_ingest_partial_voice(self):
+        def user(text):
+            return {"author": {"role": "user"}, "content": {"parts": [text]}}
+        incomplete = [{"current_node": "u1", "mapping": {
+            "u1": {"parent": "missing", "message": user("Unverified fragment.")}}}]
+        cyclic = [{"current_node": "u1", "mapping": {
+            "u1": {"parent": "u1", "message": user("Cyclic fragment.")}}}]
+        self.assertEqual(list(jack_sources.chatgpt_messages(incomplete)), [])
+        self.assertEqual(list(jack_sources.chatgpt_messages(cyclic)), [])
+
     def test_pdf_visual_role_markers_are_separate_provenance(self):
         p=self.vault/"transcript.txt"
         p.write_text("  You   · Nov 16, 2026, 2:50 PM\n"
