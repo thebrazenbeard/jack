@@ -69,13 +69,13 @@ def pdf_text_user_messages(raw):
     This is weaker attribution than native ChatGPT JSON: visual role labels
     can be damaged by PDF extraction. Assistant blocks are never returned.
     """
-    marker = re.compile(r"^\\s*(You|ChatGPT)\\s+\\S\\s+Nov\\s+\\d{1,2},\\s+\\d{4},", re.I)
+    marker = re.compile(r"^\s*(You|ChatGPT)\s+\S\s+Nov\s+\d{1,2},\s+\d{4},", re.I)
     role, lines = None, []
     for line in raw.splitlines():
         match = marker.search(line)
         if match:
             if role == "you" and lines:
-                yield "\\n".join(lines).strip()
+                yield "\n".join(lines).strip()
             role = match.group(1).lower()
             lines = []
             continue
@@ -86,11 +86,11 @@ def pdf_text_user_messages(raw):
                 clean == "Vera" or "moz-extension://" in clean or
                 "This chat was exported with" in clean or
                 clean.startswith("Export any chat to") or
-                re.fullmatch(r"\\d+ of \\d+", clean)):
+                re.fullmatch(r"\d+ of \d+", clean)):
             continue
         lines.append(clean)
     if role == "you" and lines:
-        yield "\\n".join(lines).strip()
+        yield "\n".join(lines).strip()
 
 
 def docx_text(path):
