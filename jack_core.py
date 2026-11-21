@@ -197,10 +197,17 @@ def build_index(manifest_path, output_path):
              "avg_words": round(sum(word_counts) / max(1, len(voice)), 2),
              "question_ratio": round(sum("?" in x for x in voice) / max(1, len(voice)), 4),
              "exclamation_ratio": round(sum("!" in x for x in voice) / max(1, len(voice)), 4)}
+    df = Counter(term for rec in records for term in set(rec["tokens"]))
+    n = max(1, len(records))
+    lexical_weights = {word: round(math.log(1 + (n - count + 0.5) /
+                              (count + 0.5)), 9) for word, count in sorted(df.items())}
+    calculated_digest = hashlib.sha256(json.dumps(lexical_weights, sort_keys=True,
+                              separators=(",", ":")).encode("utf-8")).hexdigest()
     index = {"schema": SCHEMA, "backbone": "frozen_external_local_model",
              "method": "deterministic_source_weighted_lexical_retrieval",
              "neural_weights_updated": False, "weights": SOURCE_WEIGHT,
              "provenance_factors": PROVENANCE_FACTOR,
+             "lexical_weights": lexical_weights, "calculated_weights_sha256": calculated_digest,
              "style": style, "source_receipts": receipts, "records": records}
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("x", encoding="utf-8") as stream:
@@ -214,7 +221,7 @@ def retrieve(index, query, limit=5):
     query_terms = set(tokens(query))
     records = index["records"]
     n = max(1, len(records))
-    df = Counter(w for rec in records for w in set(rec["tokens"]))
+    lexical_weights = index["lexical_weights"]
     mean_len = max(1.0, sum(len(rec["tokens"]) for rec in records) / n)
     matches = []
     for rec in records:
@@ -222,7 +229,7 @@ def retrieve(index, query, limit=5):
         length = max(1, len(rec["tokens"]))
         bm25 = 0.0
         for term in query_terms & tf.keys():
-            idf = math.log(1 + (n - df[term] + 0.5) / (df[term] + 0.5))
+            idf = lexical_weights.get(term, 0.0)
             bm25 += idf * tf[term] * 2.2 / (
                 tf[term] + 1.2 * (0.25 + 0.75 * length / mean_len))
         score = (bm25 * index["weights"][rec["class"]] *
