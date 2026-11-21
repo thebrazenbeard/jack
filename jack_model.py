@@ -68,7 +68,7 @@ def build_parameters(evidence):
         category = rec["class"]
         if category == "conversation" and role in VOICE_ROLES:
             voice_count += 1
-            factor = int(round(1000 * VOICE_ROLES[role]))
+            factor = VOICE_ROLES[role]
             for sentence in SENTENCE.split(rec["text"]):
                 words = tokenize(sentence)
                 if not words:
@@ -81,7 +81,7 @@ def build_parameters(evidence):
                     bi[state[1]][token] += factor
                     state = (state[1], token)
         elif category in ("history", "public") and role in CONTEXT_FACTORS:
-            factor = int(round(1000 * CONTEXT_FACTORS[role]))
+            factor = CONTEXT_FACTORS[role]
             # Context words contribute topic weight only; never transition counts.
             for word, count in Counter(tokenize(rec["text"])).items():
                 history[word] += factor * count
