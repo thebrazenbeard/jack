@@ -23,11 +23,11 @@ class SourceTests(unittest.TestCase):
 
     def test_native_export_user_only_never_assistant(self):
         p=self.vault/"chat.json"
-        p.write_text(json.dumps([{"mapping":{
-          "u":{"message":{"author":{"role":"user"},
+        p.write_text(json.dumps([{"current_node":"a","mapping":{
+          "u":{"parent":None,"message":{"author":{"role":"user"},
                           "content":{"parts":["I distrust agreeable robots."]},
                           "create_time":1}},
-          "a":{"message":{"author":{"role":"assistant"},
+          "a":{"parent":"u","message":{"author":{"role":"assistant"},
                           "content":{"parts":["Assistant speech must not count."]},
                           "create_time":2}}
         }}]),encoding="utf-8")
@@ -41,6 +41,66 @@ class SourceTests(unittest.TestCase):
         self.assertIn("distrust",idx["records"][0]["text"])
         self.assertNotIn("Assistant speech",json.dumps(idx))
         self.assertEqual(idx["backbone"],"none")
+
+    def test_empty_mapping_uses_explicit_messages_without_assistant_voice(self):
+        data = [{"mapping": {}, "messages": [
+            {"author": {"role": "user"},
+             "content": {"parts": ["I inspect the evidence before deciding."]}},
+            {"author": {"role": "assistant"},
+             "content": {"parts": ["I am not Patrick's voice."]}},
+        ]}]
+        self.assertEqual(list(jack_sources.chatgpt_messages(data)),
+                         ["I inspect the evidence before deciding."])
+
+    def test_native_export_respects_selected_branch_only(self):
+        def msg(role, text):
+            return {"author": {"role": role}, "content": {"parts": [text]}}
+        data = [{"current_node": "a1", "mapping": {
+            "root": {"parent": None, "message": None},
+            "u1": {"parent": "root", "message": msg("user", "This is my chosen reply.")},
+            "a1": {"parent": "u1", "message": msg("assistant", "Assistant text.")},
+            "u_discarded": {"parent": "root", "message": msg("user", "Discarded draft.")},
+        }}]
+        self.assertEqual(list(jack_sources.chatgpt_messages(data)),
+                         ["This is my chosen reply."])
+
+    def test_corrupt_selected_branch_does_not_ingest_partial_voice(self):
+        def user(text):
+            return {"author": {"role": "user"}, "content": {"parts": [text]}}
+        incomplete = [{"current_node": "u1", "mapping": {
+            "u1": {"parent": "missing", "message": user("Unverified fragment.")}}}]
+        cyclic = [{"current_node": "u1", "mapping": {
+            "u1": {"parent": "u1", "message": user("Cyclic fragment.")}}}]
+        self.assertEqual(list(jack_sources.chatgpt_messages(incomplete)), [])
+        self.assertEqual(list(jack_sources.chatgpt_messages(cyclic)), [])
+
+    def test_missing_selected_node_rejects_multiple_branches(self):
+        def msg(text):
+            return {"author": {"role": "user"}, "content": {"parts": [text]}}
+        data = [{"mapping": {
+            "root": {"parent": None, "message": None},
+            "left": {"parent": "root", "message": msg("Left path is mine.")},
+            "right": {"parent": "root", "message": msg("Right path is mine.")},
+        }}]
+        self.assertEqual(list(jack_sources.chatgpt_messages(data)), [])
+
+    def test_missing_selected_node_accepts_only_unique_complete_chain(self):
+        def msg(text):
+            return {"author": {"role": "user"}, "content": {"parts": [text]}}
+        data = [{"mapping": {
+            "root": {"parent": None, "message": None},
+            "u": {"parent": "root", "message": msg("Only unbranched response.")},
+            "a": {"parent": "u", "message": {
+                "author": {"role": "assistant"}, "content": {"parts": ["Assistant output."]}}},
+        }}]
+        self.assertEqual(list(jack_sources.chatgpt_messages(data)),
+                         ["Only unbranched response."])
+
+    def test_missing_selected_node_rejects_unstructured_mapping(self):
+        data = [{"mapping": {"u": {"message": {
+            "author": {"role": "user"},
+            "content": {"parts": ["Unstructured utterance."]}}}}}]
+        self.assertEqual(list(jack_sources.chatgpt_messages(data)), [])
 
     def test_pdf_visual_role_markers_are_separate_provenance(self):
         p=self.vault/"transcript.txt"

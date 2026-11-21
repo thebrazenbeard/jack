@@ -1,6 +1,6 @@
-"""JACK: frozen neural backbone plus reproducible, calculated evidence weights.
+"""JACK: provenance-aware evidence intake for a standalone analytic model.
 
-No gradient training, neural tensor changes, remote embeddings or telemetry.
+No pretrained backbone, gradient training, remote embeddings or telemetry.
 All personal source bytes remain in an operator-chosen private vault.
 """
 from collections import Counter
@@ -39,9 +39,35 @@ def chatgpt_messages(data):
             continue
         messages = []
         mapping = conversation.get("mapping", {})
-        if isinstance(mapping, dict):
-            messages = [v.get("message") for v in mapping.values()
-                        if isinstance(v, dict)]
+        if isinstance(mapping, dict) and mapping:
+            selected = conversation.get("current_node")
+            current = selected
+            if current is None and all(isinstance(node, dict) and
+                                       "parent" in node for node in mapping.values()):
+                # Only infer a branch when the complete graph has one terminal.
+                parents = {node["parent"] for node in mapping.values()
+                           if node["parent"] is not None}
+                leaves = [key for key in mapping if key not in parents]
+                if len(leaves) == 1:
+                    current = leaves[0]
+            if current is not None:
+                # Use the selected ancestry, not every discarded conversation fork.
+                lineage, seen = [], set()
+                while current is not None:
+                    if not isinstance(current, str) or current in seen:
+                        lineage = []
+                        break
+                    seen.add(current)
+                    node = mapping.get(current)
+                    if not isinstance(node, dict):
+                        lineage = []
+                        break
+                    lineage.append(node.get("message"))
+                    current = node.get("parent")
+                if selected is None and len(seen) != len(mapping):
+                    # Inference requires one complete, connected graph.
+                    lineage = []
+                messages = list(reversed(lineage))
         elif isinstance(conversation.get("messages"), list):
             messages = conversation["messages"]
         for message in sorted((x for x in messages if isinstance(x, dict)),
